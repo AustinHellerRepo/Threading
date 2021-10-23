@@ -188,16 +188,23 @@ class EncapsulatedThread():
 
 class SemaphoreRequest():
 
-	def __init__(self, *, acquire_semaphore_names, release_semaphore_names):
+	def __init__(self, *, acquire_semaphore_names: list, release_semaphore_names: list, is_release_async: bool):
 
 		self.__acquire_semaphore_names = acquire_semaphore_names
 		self.__release_semaphore_names = release_semaphore_names
+		self.__is_release_async = is_release_async
 
 	def get_aquire_semaphore_names(self):
 		return self.__acquire_semaphore_names
 
 	def get_release_semaphore_names(self):
 		return self.__release_semaphore_names
+
+	def get_is_release_async(self) -> bool:
+		return self.__is_release_async
+
+	def clear_release_semaphore_names(self):
+		self.__release_semaphore_names.clear()
 
 
 class SemaphoreRequestQueue():
@@ -232,29 +239,51 @@ class SemaphoreRequestQueue():
 
 	def __dequeue_thread_method(self):
 
-		def _try_process_semaphore_request(*, semaphore_request: SemaphoreRequest) -> bool:
+		def _try_process_semaphore_request(*, semaphore_request: SemaphoreRequest):
 			# can this semaphore request acquire the necessary semaphores?
 			_is_at_least_one_acquired_semaphore = False
 			_is_at_least_one_released_semaphore = False
-			for _acquire_semaphore_name in _semaphore_request.get_aquire_semaphore_names():
+			for _acquire_semaphore_name in semaphore_request.get_aquire_semaphore_names():
 				if _acquire_semaphore_name in self.__acquired_semaphore_names:
 					# this acquire semaphore name is already acquired, so it cannot be acquired again
 					_is_at_least_one_acquired_semaphore = True
 					break
-			if not _is_at_least_one_acquired_semaphore:
+			if not _is_at_least_one_acquired_semaphore or semaphore_request.get_is_release_async():
 				# can this semaphore request release the necessary semaphores?
-				for _release_semaphore_name in _semaphore_request.get_release_semaphore_names():
+				for _release_semaphore_name in semaphore_request.get_release_semaphore_names():
 					if _release_semaphore_name not in self.__acquired_semaphore_names:
 						# this release semaphore name is not currently acquired, so it cannot be released
 						_is_at_least_one_released_semaphore = True
 						break
 
-			if not _is_at_least_one_acquired_semaphore and not _is_at_least_one_released_semaphore:
-				self.__acquired_semaphore_names.extend(_semaphore_request.get_aquire_semaphore_names())
-				for _release_semaphore_name in _semaphore_request.get_release_semaphore_names():
-					self.__acquired_semaphore_names.remove(_release_semaphore_name)
-				return True
-			return False
+			print(f"semaphore_request: {semaphore_request.get_aquire_semaphore_names()} | {semaphore_request.get_release_semaphore_names()} | {semaphore_request.get_is_release_async()}")
+			print(f"_is_at_least_one_acquired_semaphore: {_is_at_least_one_acquired_semaphore}")
+			print(f"_is_at_least_one_released_semaphore: {_is_at_least_one_released_semaphore}")
+
+			if not semaphore_request.get_is_release_async():
+				if not _is_at_least_one_acquired_semaphore and not _is_at_least_one_released_semaphore:
+					self.__acquired_semaphore_names.extend(semaphore_request.get_aquire_semaphore_names())
+					for _release_semaphore_name in semaphore_request.get_release_semaphore_names():
+						self.__acquired_semaphore_names.remove(_release_semaphore_name)
+					print(f"return True, True")
+					return True, True  # was this semaphore acquired, did this semaphore alter the state
+				print(f"return False, False")
+				return False, False
+			else:
+				if not _is_at_least_one_released_semaphore:  # the semaphore are acquired and can be released
+					for _release_semaphore_name in semaphore_request.get_release_semaphore_names():
+						self.__acquired_semaphore_names.remove(_release_semaphore_name)
+					if not _is_at_least_one_acquired_semaphore:  # the acquire of semaphores is also possible
+						self.__acquired_semaphore_names.extend(semaphore_request.get_aquire_semaphore_names())
+						print(f"return True, True")
+						return True, True
+					else:
+						semaphore_request.clear_release_semaphore_names()  # clear out the release semaphores so that they are not stopping the next attempt to acquire
+						print(f"return False, True")
+						return False, True
+				else:
+					print(f"return False, False")
+					return False, False
 
 		self.__dequeue_semaphore.acquire()
 
@@ -268,25 +297,31 @@ class SemaphoreRequestQueue():
 			_is_queue_empty = (len(self.__active_queue) == 0)
 			self.__queue_semaphore.release()
 
-			_is_active_semaphore_request_processed = _try_process_semaphore_request(
+			print(f"processing active...")
+			_is_semaphore_acquired, _is_state_changed = _try_process_semaphore_request(
 				semaphore_request=_semaphore_request
 			)
+			print(f"processed active")
+
+			# if the state changed, then try to process the pended requests
+			while _is_state_changed and len(self.__pending_queue) != 0:
+				for _pending_queue_index, (_pending_semaphore_request, _pending_blocking_semaphore) in enumerate(self.__pending_queue):
+					print(f"processing pended...")
+					_is_pended_semaphore_acquired, _is_state_changed = _try_process_semaphore_request(
+						semaphore_request=_pending_semaphore_request
+					)
+					print(f"processed pended")
+					if _is_pended_semaphore_acquired:
+						print(f"pended acquired")
+						_pending_blocking_semaphore.release()
+						del self.__pending_queue[_pending_queue_index]
+					if _is_state_changed:
+						break  # the state has changed, so revisit the earlier queued requests
 
 			# if it could be processed, then release blocking semaphore and run through the pending semaphore requests
-			if _is_active_semaphore_request_processed:
+			if _is_semaphore_acquired:
+				print(f"active acquired")
 				_blocking_semaphore.release()
-				#time.sleep(0.01)
-
-				_is_pending_semaphore_request_processed = True
-				while _is_pending_semaphore_request_processed and len(self.__pending_queue) != 0:
-					for _pending_queue_index, (_semaphore_request, _blocking_semaphore) in enumerate(self.__pending_queue):
-						_is_pending_semaphore_request_processed = _try_process_semaphore_request(
-							semaphore_request=_semaphore_request
-						)
-						if _is_pending_semaphore_request_processed:
-							_blocking_semaphore.release()
-							del self.__pending_queue[_pending_queue_index]
-
 			else:
 				self.__pending_queue.append((_semaphore_request, _blocking_semaphore))
 
@@ -578,3 +613,500 @@ class ThreadCycleCache():
 			_thread_cycle.stop()
 		self.__thread_cycles.clear()
 		self.__thread_cycles_semaphore.release()
+
+
+class Buffer():
+
+	def get(self):
+		raise NotImplementedError()
+
+	def request(self, length: int):
+		raise NotImplementedError()
+
+	def push(self, offset: int):
+		raise NotImplementedError()
+
+	def length(self) -> int:
+		raise NotImplementedError()
+
+	def append(self, element):
+		raise NotImplementedError()
+
+	def extend(self, elements):
+		raise NotImplementedError()
+
+
+class ByteArrayBuffer(Buffer):
+
+	def __init__(self):
+		self.__byte_array = bytearray()
+		self.__length = 0
+
+	def get(self):
+		return self.__byte_array.copy()
+
+	def request(self, length: int):
+		return self.__byte_array[:length]
+
+	def push(self, offset: int):
+		self.__byte_array = self.__byte_array[offset:]
+
+	def length(self) -> int:
+		return self.__length
+
+	def append(self, byte):
+		self.__byte_array.append(byte)
+		self.__length += 1
+
+	def extend(self, bytes):
+		self.__byte_array.extend(bytes)
+		self.__length += len(bytes)
+
+
+class ListBuffer(Buffer):
+
+	def __init__(self):
+		self.__list = list()
+		self.__length = 0
+
+	def get(self):
+		_buffer = self.__list.copy()
+		return _buffer
+
+	def request(self, length: int):
+		_request = self.__list[:length]
+		return _request
+
+	def push(self, offset: int):
+		self.__list = self.__list[offset:]
+
+	def length(self) -> int:
+		return self.__length
+
+	def append(self, item):
+		self.__list.append(item)
+		self.__length += 1
+
+	def extend(self, items):
+		self.__list.extend(items)
+		self.__length += len(items)
+
+
+class BufferFactory():
+
+	def get_buffer(self) -> Buffer:
+		raise NotImplementedError()
+
+
+class ByteArrayBufferFactory(BufferFactory):
+
+	def get_buffer(self) -> ByteArrayBuffer:
+		return ByteArrayBuffer()
+
+
+class ListBufferFactory(BufferFactory):
+
+	def get_buffer(self) -> ListBuffer:
+		return ListBuffer()
+
+
+class UuidGenerator():
+
+	def get_uuid(self) -> str:
+		raise NotImplementedError()
+
+
+class UuidGeneratorFactory():
+
+	def get_uuid_generator(self) -> UuidGenerator:
+		raise NotImplementedError()
+
+
+class DisposedException(Exception):
+	pass
+
+
+class CancelledException(Exception):
+	pass
+
+
+class WindowBuffer():
+
+	def __init__(self, *, buffer_factory: BufferFactory, uuid_generator_factory: UuidGeneratorFactory):
+
+		self.__buffer_factory = buffer_factory
+		self.__uuid_generator_factory = uuid_generator_factory
+
+		self.__is_disposed = False
+		self.__buffer = self.__buffer_factory.get_buffer()
+		self.__waiting_for_buffer_queue = []
+		self.__uuid_generator = self.__uuid_generator_factory.get_uuid_generator()
+		self.__semaphore_request_queue = SemaphoreRequestQueue(
+			acquired_semaphore_names=[]
+		)
+		self.__get_buffer_started_prepared_semaphore_request = PreparedSemaphoreRequest(
+			semaphore_request=SemaphoreRequest(
+				acquire_semaphore_names=[
+					"buffer semaphore"
+				],
+				release_semaphore_names=[],
+				is_release_async=False
+			),
+			semaphore_request_queue=self.__semaphore_request_queue
+		)
+		self.__get_buffer_ended_prepared_semaphore_request = PreparedSemaphoreRequest(
+			semaphore_request=SemaphoreRequest(
+				acquire_semaphore_names=[],
+				release_semaphore_names=[
+					"buffer semaphore"
+				],
+				is_release_async=False
+			),
+			semaphore_request_queue=self.__semaphore_request_queue
+		)
+		self.__push_window_started_prepared_semaphore_request = PreparedSemaphoreRequest(
+			semaphore_request=SemaphoreRequest(
+				acquire_semaphore_names=[
+					"buffer semaphore"
+				],
+				release_semaphore_names=[],
+				is_release_async=False
+			),
+			semaphore_request_queue=self.__semaphore_request_queue
+		)
+		self.__push_window_ended_prepared_semaphore_request = PreparedSemaphoreRequest(
+			semaphore_request=SemaphoreRequest(
+				acquire_semaphore_names=[],
+				release_semaphore_names=[
+					"buffer semaphore"
+				],
+				is_release_async=False
+			),
+			semaphore_request_queue=self.__semaphore_request_queue
+		)
+		self.__append_started_prepared_semaphore_request = PreparedSemaphoreRequest(
+			semaphore_request=SemaphoreRequest(
+				acquire_semaphore_names=[
+					"buffer semaphore"
+				],
+				release_semaphore_names=[],
+				is_release_async=False
+			),
+			semaphore_request_queue=self.__semaphore_request_queue
+		)
+		self.__append_ended_prepared_semaphore_request = PreparedSemaphoreRequest(
+			semaphore_request=SemaphoreRequest(
+				acquire_semaphore_names=[],
+				release_semaphore_names=[
+					"buffer semaphore"
+				],
+				is_release_async=False
+			),
+			semaphore_request_queue=self.__semaphore_request_queue
+		)
+		self.__extend_started_prepared_semaphore_request = PreparedSemaphoreRequest(
+			semaphore_request=SemaphoreRequest(
+				acquire_semaphore_names=[
+					"buffer semaphore"
+				],
+				release_semaphore_names=[],
+				is_release_async=False
+			),
+			semaphore_request_queue=self.__semaphore_request_queue
+		)
+		self.__extend_ended_prepared_semaphore_request = PreparedSemaphoreRequest(
+			semaphore_request=SemaphoreRequest(
+				acquire_semaphore_names=[],
+				release_semaphore_names=[
+					"buffer semaphore"
+				],
+				is_release_async=False
+			),
+			semaphore_request_queue=self.__semaphore_request_queue
+		)
+		self.__dispose_started_prepared_semaphore_request = PreparedSemaphoreRequest(
+			semaphore_request=SemaphoreRequest(
+				acquire_semaphore_names=[
+					"buffer semaphore"
+				],
+				release_semaphore_names=[],
+				is_release_async=False
+			),
+			semaphore_request_queue=self.__semaphore_request_queue
+		)
+		self.__dispose_ended_prepared_semaphore_request = PreparedSemaphoreRequest(
+			semaphore_request=SemaphoreRequest(
+				acquire_semaphore_names=[],
+				release_semaphore_names=[
+					"buffer semaphore"
+				],
+				is_release_async=False
+			),
+			semaphore_request_queue=self.__semaphore_request_queue
+		)
+
+	def get_buffer(self) -> tuple:
+		print("WindowBuffer: get_buffer: start")
+		self.__get_buffer_started_prepared_semaphore_request.apply()
+		_buffer = self.__buffer.get()
+		self.__get_buffer_ended_prepared_semaphore_request.apply()
+		print("WindowBuffer: get_buffer: end")
+		return _buffer
+
+	def push_window(self, offset: int):
+		print("WindowBuffer: push_window: start")
+		self.__push_window_started_prepared_semaphore_request.apply()
+		if self.__is_disposed:
+			self.__push_window_ended_prepared_semaphore_request.apply()
+			raise DisposedException()
+		else:
+			if self.__buffer.length() < offset:
+				_local_semaphore_name = self.__uuid_generator.get_uuid()
+				_remote_semaphore_name = self.__uuid_generator.get_uuid()
+				_local_block_prepared_semaphore_request = PreparedSemaphoreRequest(
+					semaphore_request=SemaphoreRequest(
+						acquire_semaphore_names=[
+							_local_semaphore_name
+						],
+						release_semaphore_names=[],
+						is_release_async=False
+					),
+					semaphore_request_queue=self.__semaphore_request_queue
+				)
+				_swap_local_and_remote_prepared_semaphore_request = PreparedSemaphoreRequest(
+					semaphore_request=SemaphoreRequest(
+						acquire_semaphore_names=[
+							_remote_semaphore_name
+						],
+						release_semaphore_names=[
+							_local_semaphore_name
+						],
+						is_release_async=True
+					),
+					semaphore_request_queue=self.__semaphore_request_queue
+				)
+				_reserve_local_block_and_remote_block_prepared_semaphore_request = PreparedSemaphoreRequest(
+					semaphore_request=SemaphoreRequest(
+						acquire_semaphore_names=[
+							_local_semaphore_name,
+							_remote_semaphore_name
+						],
+						release_semaphore_names=[
+							"buffer semaphore"
+						],
+						is_release_async=False
+					),
+					semaphore_request_queue=self.__semaphore_request_queue
+				)
+				_remote_unblock_prepared_semaphore_request = PreparedSemaphoreRequest(
+					semaphore_request=SemaphoreRequest(
+						acquire_semaphore_names=[],
+						release_semaphore_names=[
+							_remote_semaphore_name
+						],
+						is_release_async=False
+					),
+					semaphore_request_queue=self.__semaphore_request_queue
+				)
+				_cancel_local_block_prepared_semaphore_request = PreparedSemaphoreRequest(
+					semaphore_request=SemaphoreRequest(
+						acquire_semaphore_names=[],
+						release_semaphore_names=[
+							_local_semaphore_name
+						],
+						is_release_async=False
+					),
+					semaphore_request_queue=self.__semaphore_request_queue
+				)
+				_local_and_remote_done_prepared_semaphore_request = PreparedSemaphoreRequest(
+					semaphore_request=SemaphoreRequest(
+						acquire_semaphore_names=[],
+						release_semaphore_names=[
+							_local_semaphore_name,
+							_remote_semaphore_name
+						],
+						is_release_async=False
+					),
+					semaphore_request_queue=self.__semaphore_request_queue
+				)
+
+				_is_cancelled = False
+
+				def _cancel_method():
+					_is_cancelled = True
+					_cancel_local_block_prepared_semaphore_request.apply()
+
+				def _process_method():
+					_swap_local_and_remote_prepared_semaphore_request.apply()
+
+				def _done_method():
+					_local_and_remote_done_prepared_semaphore_request.apply()
+
+				self.__waiting_for_buffer_queue.append((offset, _process_method, _cancel_method, _done_method))
+				_reserve_local_block_and_remote_block_prepared_semaphore_request.apply()
+				_local_block_prepared_semaphore_request.apply()
+				if not _is_cancelled:
+					self.__buffer.push(offset)
+				_remote_unblock_prepared_semaphore_request.apply()
+				if _is_cancelled:
+					raise CancelledException()
+			else:
+				self.__buffer.push(offset)
+				self.__push_window_ended_prepared_semaphore_request.apply()
+		print("WindowBuffer: push_window: end")
+
+	def get_window(self, length: int) -> tuple:
+		print(f"WindowBuffer: get_window: start: {length}")
+		_window = None
+		self.__push_window_started_prepared_semaphore_request.apply()
+		if self.__is_disposed:
+			self.__push_window_ended_prepared_semaphore_request.apply()
+			raise DisposedException()
+		else:
+			if self.__buffer.length() < length:
+				_local_semaphore_name = self.__uuid_generator.get_uuid()
+				_remote_semaphore_name = self.__uuid_generator.get_uuid()
+				_local_block_prepared_semaphore_request = PreparedSemaphoreRequest(
+					semaphore_request=SemaphoreRequest(
+						acquire_semaphore_names=[
+							_local_semaphore_name
+						],
+						release_semaphore_names=[],
+						is_release_async=False
+					),
+					semaphore_request_queue=self.__semaphore_request_queue
+				)
+				_swap_local_and_remote_prepared_semaphore_request = PreparedSemaphoreRequest(
+					semaphore_request=SemaphoreRequest(
+						acquire_semaphore_names=[
+							_remote_semaphore_name
+						],
+						release_semaphore_names=[
+							_local_semaphore_name
+						],
+						is_release_async=True
+					),
+					semaphore_request_queue=self.__semaphore_request_queue
+				)
+				_reserve_local_block_and_remote_block_prepared_semaphore_request = PreparedSemaphoreRequest(
+					semaphore_request=SemaphoreRequest(
+						acquire_semaphore_names=[
+							_local_semaphore_name,
+							_remote_semaphore_name
+						],
+						release_semaphore_names=[
+							"buffer semaphore"
+						],
+						is_release_async=False
+					),
+					semaphore_request_queue=self.__semaphore_request_queue
+				)
+				_remote_unblock_prepared_semaphore_request = PreparedSemaphoreRequest(
+					semaphore_request=SemaphoreRequest(
+						acquire_semaphore_names=[],
+						release_semaphore_names=[
+							_remote_semaphore_name
+						],
+						is_release_async=False
+					),
+					semaphore_request_queue=self.__semaphore_request_queue
+				)
+				_cancel_local_block_prepared_semaphore_request = PreparedSemaphoreRequest(
+					semaphore_request=SemaphoreRequest(
+						acquire_semaphore_names=[],
+						release_semaphore_names=[
+							_local_semaphore_name
+						],
+						is_release_async=False
+					),
+					semaphore_request_queue=self.__semaphore_request_queue
+				)
+				_local_and_remote_done_prepared_semaphore_request = PreparedSemaphoreRequest(
+					semaphore_request=SemaphoreRequest(
+						acquire_semaphore_names=[],
+						release_semaphore_names=[
+							_local_semaphore_name,
+							_remote_semaphore_name
+						],
+						is_release_async=False
+					),
+					semaphore_request_queue=self.__semaphore_request_queue
+				)
+
+				_is_cancelled = False
+
+				def _cancel_method():
+					_is_cancelled = True
+					_cancel_local_block_prepared_semaphore_request.apply()
+
+				def _process_method():
+					_swap_local_and_remote_prepared_semaphore_request.apply()
+
+				def _done_method():
+					_local_and_remote_done_prepared_semaphore_request.apply()
+
+				self.__waiting_for_buffer_queue.append((length, _process_method, _cancel_method, _done_method))
+				_reserve_local_block_and_remote_block_prepared_semaphore_request.apply()
+				_local_block_prepared_semaphore_request.apply()
+				if not _is_cancelled:
+					_window = self.__buffer.request(length)
+				_remote_unblock_prepared_semaphore_request.apply()
+				if _is_cancelled:
+					raise CancelledException()
+			else:
+				_window = self.__buffer.request(length)
+				self.__push_window_ended_prepared_semaphore_request.apply()
+		print("WindowBuffer: get_window: end")
+		return _window
+
+	def append(self, item):
+		print("WindowBuffer: append: start")
+		self.__append_started_prepared_semaphore_request.apply()
+		if self.__is_disposed:
+			self.__append_ended_prepared_semaphore_request.apply()
+			raise DisposedException()
+		else:
+			print("WindowBuffer: append: self.__buffer.append(item)")
+			self.__buffer.append(item)
+			print(f"WindowBuffer: append: len(self.__waiting_for_buffer_queue) != 0: {len(self.__waiting_for_buffer_queue) != 0}")
+			if len(self.__waiting_for_buffer_queue) != 0:
+				print(f"WindowBuffer: append: self.__buffer.length() >= self.__waiting_for_buffer_queue[0][0]: {self.__buffer.length() >= self.__waiting_for_buffer_queue[0][0]}")
+			while len(self.__waiting_for_buffer_queue) != 0 and self.__buffer.length() >= self.__waiting_for_buffer_queue[0][0]:
+				_, _process_method, _, _done_method = self.__waiting_for_buffer_queue.pop(0)
+				print(f"processing...")
+				_process_method()
+				print(f"done...")
+				_done_method()
+				print("loop over")
+			self.__append_ended_prepared_semaphore_request.apply()
+		print("WindowBuffer: append: end")
+
+	def extend(self, item):
+		print("WindowBuffer: extend: start")
+		self.__extend_started_prepared_semaphore_request.apply()
+		if self.__is_disposed:
+			self.__extend_ended_prepared_semaphore_request.apply()
+			raise DisposedException()
+		else:
+			self.__buffer.extend(item)
+			while len(self.__waiting_for_buffer_queue) != 0 and self.__buffer.length() >= self.__waiting_for_buffer_queue[0][0]:
+				_, _process_method, _, _done_method = self.__waiting_for_buffer_queue.pop(0)
+				_process_method()
+				_done_method()
+			self.__extend_ended_prepared_semaphore_request.apply()
+		print("WindowBuffer: extend: end")
+
+	def dispose(self):
+		print("WindowBuffer: dispose: start")
+		self.__dispose_started_prepared_semaphore_request.apply()
+		if self.__is_disposed:
+			self.__dispose_ended_prepared_semaphore_request.apply()
+			raise DisposedException()
+		else:
+			while len(self.__waiting_for_buffer_queue) != 0:
+				_, _, _cancel_method, _done_method = self.__waiting_for_buffer_queue.pop(0)
+				_cancel_method()
+				_done_method()
+			self.__is_disposed = True
+			self.__dispose_ended_prepared_semaphore_request.apply()
+		print("WindowBuffer: dispose: end")
