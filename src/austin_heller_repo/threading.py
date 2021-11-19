@@ -417,6 +417,61 @@ class TimeoutThread():
 		return not self.__is_timed_out
 
 
+class AsyncHandle():
+
+	def __init__(self, *, get_result_method):
+
+		self.__get_result_method = get_result_method
+
+		self.__is_cancelled = BooleanReference(False)
+		self.__is_storing = None
+		self.__result = None
+		self.__wait_for_result_semaphore = Semaphore()
+
+	def __store_result(self):
+
+		self.__wait_for_result_semaphore.acquire()
+		self.__is_storing = True
+		self.__result = self.__get_result_method(self.__is_cancelled)
+		self.__is_storing = False
+		self.__wait_for_result_semaphore.release()
+
+	def __wait_for_result(self):
+
+		self.__wait_for_result_semaphore.acquire()
+		self.__wait_for_result_semaphore.release()
+
+	def cancel(self):
+
+		self.__is_cancelled.set(True)
+
+	def try_wait(self, *, timeout_seconds: float) -> bool:
+
+		is_successful = True
+		if not self.__is_cancelled.get():
+			if self.__is_storing is None:
+				timeout_thread = TimeoutThread(self.__store_result, timeout_seconds)
+				timeout_thread.start()
+				is_successful = timeout_thread.try_wait()
+			elif self.__is_storing:
+				timeout_thread = TimeoutThread(self.__wait_for_result, timeout_seconds)
+				timeout_thread.start()
+				is_successful = timeout_thread.try_wait()
+
+		return is_successful
+
+	def get_result(self) -> object:
+
+		if not self.__is_cancelled.get():
+			if self.__is_storing is None:
+				self.__store_result()
+			elif self.__is_storing:
+				self.__wait_for_result_semaphore.acquire()
+				self.__wait_for_result_semaphore.release()
+
+		return self.__result
+
+
 class CyclingUnitOfWork():
 	'''
 	This class represents a unit of work that can be repeated until it determines that there is no more work to perform.
@@ -457,49 +512,56 @@ class ThreadCycle():
 		self.__block_cycle_prepared_semaphore_request = PreparedSemaphoreRequest(
 			semaphore_request=SemaphoreRequest(
 				acquire_semaphore_names=["blocking cycle"],
-				release_semaphore_names=[]
+				release_semaphore_names=[],
+				is_release_async=False
 			),
 			semaphore_request_queue=self.__cycle_semaphore_request_queue
 		)
 		self.__starting_try_cycle_prepared_semaphore_request = PreparedSemaphoreRequest(
 			semaphore_request=SemaphoreRequest(
 				acquire_semaphore_names=["try cycle"],
-				release_semaphore_names=[]
+				release_semaphore_names=[],
+				is_release_async=False
 			),
 			semaphore_request_queue=self.__cycle_semaphore_request_queue
 		)
 		self.__finished_try_cycle_prepared_semaphore_request = PreparedSemaphoreRequest(
 			semaphore_request=SemaphoreRequest(
 				acquire_semaphore_names=[],
-				release_semaphore_names=["try cycle"]
+				release_semaphore_names=["try cycle"],
+				is_release_async=False
 			),
 			semaphore_request_queue=self.__cycle_semaphore_request_queue
 		)
 		self.__finished_try_cycle_and_unblock_prepared_semaphore_request = PreparedSemaphoreRequest(
 			semaphore_request=SemaphoreRequest(
 				acquire_semaphore_names=[],
-				release_semaphore_names=["try cycle", "blocking cycle"]
+				release_semaphore_names=["try cycle", "blocking cycle"],
+				is_release_async=False
 			),
 			semaphore_request_queue=self.__cycle_semaphore_request_queue
 		)
 		self.__try_get_next_work_queue_element_prepared_semaphore_request = PreparedSemaphoreRequest(
 			semaphore_request=SemaphoreRequest(
 				acquire_semaphore_names=["try cycle"],
-				release_semaphore_names=[]
+				release_semaphore_names=[],
+				is_release_async=False
 			),
 			semaphore_request_queue=self.__cycle_semaphore_request_queue
 		)
 		self.__acknowledge_nonempty_work_queue_prepared_semaphore_request = PreparedSemaphoreRequest(
 			semaphore_request=SemaphoreRequest(
 				acquire_semaphore_names=[],
-				release_semaphore_names=["try cycle"]
+				release_semaphore_names=["try cycle"],
+				is_release_async=False
 			),
 			semaphore_request_queue=self.__cycle_semaphore_request_queue
 		)
 		self.__acknowledge_empty_work_queue_prepared_semaphore_request = PreparedSemaphoreRequest(
 			semaphore_request=SemaphoreRequest(
 				acquire_semaphore_names=[],
-				release_semaphore_names=["try cycle"]
+				release_semaphore_names=["try cycle"],
+				is_release_async=False
 			),
 			semaphore_request_queue=self.__cycle_semaphore_request_queue
 		)
