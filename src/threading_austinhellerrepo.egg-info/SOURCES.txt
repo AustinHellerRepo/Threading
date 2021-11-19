@@ -7,3 +7,4 @@ src/threading_austinhellerrepo.egg-info/PKG-INFO
 src/threading_austinhellerrepo.egg-info/SOURCES.txt
 src/threading_austinhellerrepo.egg-info/dependency_links.txt
 src/threading_austinhellerrepo.egg-info/top_level.txt
+test/test_threading.py
