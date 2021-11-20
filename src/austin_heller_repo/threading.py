@@ -415,6 +415,16 @@ class TimeoutThread():
 		return not self.__is_timed_out
 
 
+class ReadOnlyAsyncHandle():
+
+	def __init__(self, *, is_cancelled: BooleanReference):
+
+		self.__is_cancelled = is_cancelled
+
+	def is_cancelled(self) -> bool:
+		return self.__is_cancelled.get()
+
+
 class AsyncHandle():
 
 	def __init__(self, *, get_result_method):
@@ -430,7 +440,7 @@ class AsyncHandle():
 
 		self.__wait_for_result_semaphore.acquire()
 		self.__is_storing = True
-		self.__result = self.__get_result_method(self.__is_cancelled)
+		self.__result = self.__get_result_method(self)
 		self.__is_storing = False
 		self.__wait_for_result_semaphore.release()
 
@@ -439,8 +449,16 @@ class AsyncHandle():
 		self.__wait_for_result_semaphore.acquire()
 		self.__wait_for_result_semaphore.release()
 
-	def add_parent(self, async_handle):
+	def get_readonly_async_handle(self) -> ReadOnlyAsyncHandle:
+		return ReadOnlyAsyncHandle(
+			is_cancelled=self.__is_cancelled
+		)
 
+	def is_cancelled(self) -> bool:
+		return self.__is_cancelled.get()
+
+	def add_parent(self, async_handle):
+		# this can be an AsyncHandle or ReadOnlyAsyncHandle
 		self.__is_cancelled.add_nand(async_handle.__is_cancelled)
 
 	def cancel(self):
