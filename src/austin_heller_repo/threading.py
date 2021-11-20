@@ -439,6 +439,10 @@ class AsyncHandle():
 		self.__wait_for_result_semaphore.acquire()
 		self.__wait_for_result_semaphore.release()
 
+	def add_parent(self, async_handle):
+
+		self.__is_cancelled.add_nand(async_handle.__is_cancelled)
+
 	def cancel(self):
 
 		self.__is_cancelled.set(True)
