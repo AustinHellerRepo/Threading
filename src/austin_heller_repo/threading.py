@@ -69,13 +69,46 @@ class BooleanReference():
 
 	def __init__(self, value: bool):
 		self.__value = value
+		self.__added_ands = []
+		self.__added_nands = []
 
 	def get(self) -> bool:
+
+		# AND - true until at least one false
+		# value		br		outcome
+		#	F		F			F
+		#	F		T			F
+		#	T		F			F
+		#	T		T			T
+
+		# NAND - false until at least one true
+		# value		br		outcome
+		#	F		F			F
+		#	F		T			T
+		#	T		F			T
+		#	T		T			T
+
+		value = self.__value
+		for boolean_reference in self.__added_ands:
+			value = value and boolean_reference.get()
+		for boolean_reference in self.__added_nands:
+			value = value != boolean_reference.get()
 		return self.__value
 
 	def set(self, value: bool):
 		self.__value = value
 
+	def add_and(self, boolean_reference):
+		# true until one is false
+		self.__added_ands.append(boolean_reference)
+		if len(self.__added_nands) != 0:
+			raise Exception("Cannot add both ands and nands.")
+
+	def add_nand(self, boolean_reference):
+		# false until one is true
+		self.__added_nands.append(boolean_reference)
+		if len(self.__added_ands) != 0:
+			raise Exception("Cannot add both ands and nands.")
 
 class StringReference():
 
