@@ -424,6 +424,10 @@ class ReadOnlyAsyncHandle():
 	def is_cancelled(self) -> bool:
 		return self.__is_cancelled.get()
 
+	def add_parent(self, async_handle):
+		# this can be an AsyncHandle or ReadOnlyAsyncHandle
+		self.__is_cancelled.add_nand(async_handle.__is_cancelled)
+
 
 class AsyncHandle():
 
@@ -440,7 +444,7 @@ class AsyncHandle():
 
 		self.__wait_for_result_semaphore.acquire()
 		self.__is_storing = True
-		self.__result = self.__get_result_method(self)
+		self.__result = self.__get_result_method(self.get_readonly_async_handle())
 		self.__is_storing = False
 		self.__wait_for_result_semaphore.release()
 
