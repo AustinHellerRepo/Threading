@@ -439,6 +439,8 @@ class AsyncHandle():
 		self.__is_storing = None
 		self.__result = None
 		self.__wait_for_result_semaphore = Semaphore()
+		self.__store_result_timeout_thread = None  # type: TimeoutThread
+		self.__is_store_result_timeout_thread_joined = True  # type: bool
 
 	def __store_result(self):
 
@@ -474,13 +476,17 @@ class AsyncHandle():
 		is_successful = True
 		if not self.__is_cancelled.get():
 			if self.__is_storing is None:
-				timeout_thread = TimeoutThread(self.__store_result, timeout_seconds)
-				timeout_thread.start()
-				is_successful = timeout_thread.try_wait()
+				self.__store_result_timeout_thread = TimeoutThread(self.__store_result, timeout_seconds)
+				self.__store_result_timeout_thread.start()
+				is_successful = self.__store_result_timeout_thread.try_wait()
+				if not is_successful:
+					self.__is_store_result_timeout_thread_joined = False
 			elif self.__is_storing:
 				timeout_thread = TimeoutThread(self.__wait_for_result, timeout_seconds)
 				timeout_thread.start()
 				is_successful = timeout_thread.try_wait()
+				if is_successful and not self.__is_store_result_timeout_thread_joined:
+					self.__store_result_timeout_thread.try_join()
 
 		return is_successful
 
@@ -492,6 +498,8 @@ class AsyncHandle():
 			elif self.__is_storing:
 				self.__wait_for_result_semaphore.acquire()
 				self.__wait_for_result_semaphore.release()
+				if not self.__is_store_result_timeout_thread_joined:
+					self.__store_result_timeout_thread.try_join()
 
 		return self.__result
 

@@ -1,6 +1,6 @@
 import unittest
 from datetime import datetime
-from src.austin_heller_repo.threading import TimeoutThread, time, ThreadDelay, Semaphore, SemaphoreRequestQueue, start_thread, SemaphoreRequest, PreparedSemaphoreRequest, CyclingUnitOfWork, ThreadCycle, ThreadCycleCache, BooleanReference, AsyncHandle
+from src.austin_heller_repo.threading import TimeoutThread, time, ThreadDelay, Semaphore, SemaphoreRequestQueue, start_thread, SemaphoreRequest, PreparedSemaphoreRequest, CyclingUnitOfWork, ThreadCycle, ThreadCycleCache, BooleanReference, AsyncHandle, ReadOnlyAsyncHandle
 
 
 class ThreadingTest(unittest.TestCase):
@@ -581,11 +581,11 @@ class ThreadingTest(unittest.TestCase):
 
         stage_index = 0
 
-        def get_result(is_cancelled: BooleanReference):
+        def get_result(read_only_async_handle: ReadOnlyAsyncHandle):
             nonlocal stage_index
 
             for index in range(10):
-                if is_cancelled.get():
+                if read_only_async_handle.is_cancelled():
                     break
                 else:
                     stage_index += 1
@@ -625,3 +625,93 @@ class ThreadingTest(unittest.TestCase):
 
         self.assertEqual("Done", after_true_wait_result)
         self.assertEqual(6, stage_index)
+
+    def test_exception_in_async_handle_01(self):
+
+        def get_result(read_only_async_handle: ReadOnlyAsyncHandle):
+
+            raise Exception(f"test exception")
+
+        async_handle = AsyncHandle(
+            get_result_method=get_result
+        )
+
+        time.sleep(1)
+
+        with self.assertRaises(Exception):
+            async_handle.get_result()
+
+    def test_exception_in_async_handle_02(self):
+
+        def get_result(read_only_async_handle: ReadOnlyAsyncHandle):
+
+            time.sleep(1)
+
+            raise Exception(f"test exception")
+
+        async_handle = AsyncHandle(
+            get_result_method=get_result
+        )
+
+        with self.assertRaises(Exception):
+            async_handle.get_result()
+
+    def test_exception_in_async_handle_03(self):
+
+        def get_result(read_only_async_handle: ReadOnlyAsyncHandle):
+
+            raise Exception(f"test exception")
+
+        async_handle = AsyncHandle(
+            get_result_method=get_result
+        )
+
+        with self.assertRaises(Exception):
+            async_handle.try_wait(
+                timeout_seconds=1
+            )
+
+    def test_exception_in_async_handle_04(self):
+
+        def get_result(read_only_async_handle: ReadOnlyAsyncHandle):
+
+            time.sleep(1)
+
+            raise Exception(f"test exception")
+
+        async_handle = AsyncHandle(
+            get_result_method=get_result
+        )
+
+        self.assertFalse(async_handle.try_wait(
+            timeout_seconds=0.5
+        ))
+
+        time.sleep(1)
+
+        with self.assertRaises(Exception):
+            async_handle.try_wait(
+                timeout_seconds=0.5
+            )
+
+    def test_exception_in_async_handle_05(self):
+
+        def get_result(read_only_async_handle: ReadOnlyAsyncHandle):
+
+            time.sleep(1)
+
+            raise Exception(f"test exception")
+
+        async_handle = AsyncHandle(
+            get_result_method=get_result
+        )
+
+        time.sleep(0.5)
+
+        async_handle.cancel()
+
+        time.sleep(1)
+
+        self.assertTrue(async_handle.try_wait(
+            timeout_seconds=0
+        ))
