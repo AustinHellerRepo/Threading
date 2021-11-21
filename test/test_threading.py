@@ -1,6 +1,7 @@
 import unittest
 from datetime import datetime
 from src.austin_heller_repo.threading import TimeoutThread, time, ThreadDelay, Semaphore, SemaphoreRequestQueue, start_thread, SemaphoreRequest, PreparedSemaphoreRequest, CyclingUnitOfWork, ThreadCycle, ThreadCycleCache, BooleanReference, AsyncHandle, ReadOnlyAsyncHandle
+from typing import List, Tuple, Dict
 
 
 class ThreadingTest(unittest.TestCase):
@@ -70,7 +71,6 @@ class ThreadingTest(unittest.TestCase):
 
         for _index in range(len(_expected_abort_outcome)):
             self.assertEqual(_expected_abort_outcome[_index], _actual_abort_outcome[_index])
-
 
     def test_semaphore_request_queue_0(self):
 
@@ -638,8 +638,10 @@ class ThreadingTest(unittest.TestCase):
 
         time.sleep(1)
 
-        with self.assertRaises(Exception):
+        with self.assertRaises(Exception) as ex:
             async_handle.get_result()
+
+        self.assertEqual("test exception", str(ex.exception))
 
     def test_exception_in_async_handle_02(self):
 
@@ -653,8 +655,10 @@ class ThreadingTest(unittest.TestCase):
             get_result_method=get_result
         )
 
-        with self.assertRaises(Exception):
+        with self.assertRaises(Exception) as ex:
             async_handle.get_result()
+
+        self.assertEqual("test exception", str(ex.exception))
 
     def test_exception_in_async_handle_03(self):
 
@@ -666,10 +670,12 @@ class ThreadingTest(unittest.TestCase):
             get_result_method=get_result
         )
 
-        with self.assertRaises(Exception):
+        with self.assertRaises(Exception) as ex:
             async_handle.try_wait(
                 timeout_seconds=1
             )
+
+        self.assertEqual("test exception", str(ex.exception))
 
     def test_exception_in_async_handle_04(self):
 
@@ -689,10 +695,12 @@ class ThreadingTest(unittest.TestCase):
 
         time.sleep(1)
 
-        with self.assertRaises(Exception):
+        with self.assertRaises(Exception) as ex:
             async_handle.try_wait(
                 timeout_seconds=0.5
             )
+
+        self.assertEqual("test exception", str(ex.exception))
 
     def test_exception_in_async_handle_05(self):
 
@@ -715,3 +723,26 @@ class ThreadingTest(unittest.TestCase):
         self.assertTrue(async_handle.try_wait(
             timeout_seconds=0
         ))
+
+    def test_exception_in_async_handle_06(self):
+
+        def get_result(read_only_async_handle: ReadOnlyAsyncHandle):
+
+            time.sleep(1)
+
+            raise Exception(f"test exception")
+
+        async_handle = AsyncHandle(
+            get_result_method=get_result
+        )
+
+        self.assertFalse(async_handle.try_wait(
+            timeout_seconds=0.5
+        ))
+
+        time.sleep(1)
+
+        with self.assertRaises(Exception) as ex:
+            async_handle.get_result()
+
+        self.assertEqual("test exception", str(ex.exception))

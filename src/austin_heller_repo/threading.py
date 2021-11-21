@@ -446,9 +446,13 @@ class AsyncHandle():
 
 		self.__wait_for_result_semaphore.acquire()
 		self.__is_storing = True
-		self.__result = self.__get_result_method(self.get_readonly_async_handle())
-		self.__is_storing = False
-		self.__wait_for_result_semaphore.release()
+		try:
+			self.__result = self.__get_result_method(self.get_readonly_async_handle())
+		except Exception as ex:
+			raise ex
+		finally:
+			self.__is_storing = False
+			self.__wait_for_result_semaphore.release()
 
 	def __wait_for_result(self):
 
@@ -487,19 +491,28 @@ class AsyncHandle():
 				is_successful = timeout_thread.try_wait()
 				if is_successful and not self.__is_store_result_timeout_thread_joined:
 					self.__store_result_timeout_thread.try_join()
+					self.__is_store_result_timeout_thread_joined = True
+			else:
+				if self.__store_result_timeout_thread is not None and not self.__is_store_result_timeout_thread_joined:
+					self.__store_result_timeout_thread.try_join()
+					self.__is_store_result_timeout_thread_joined = True
 
 		return is_successful
 
 	def get_result(self) -> object:
 
-		if not self.__is_cancelled.get():
-			if self.__is_storing is None:
-				self.__store_result()
-			elif self.__is_storing:
-				self.__wait_for_result_semaphore.acquire()
-				self.__wait_for_result_semaphore.release()
-				if not self.__is_store_result_timeout_thread_joined:
-					self.__store_result_timeout_thread.try_join()
+		if self.__is_storing or self.__is_storing is None:
+			if not self.__is_cancelled.get():
+				if self.__is_storing is None:
+					self.__store_result()
+				elif self.__is_storing:
+					self.__wait_for_result_semaphore.acquire()
+					self.__wait_for_result_semaphore.release()
+					if not self.__is_store_result_timeout_thread_joined:
+						self.__store_result_timeout_thread.try_join()
+		else:
+			if not self.__is_store_result_timeout_thread_joined:
+				self.__store_result_timeout_thread.try_join()
 
 		return self.__result
 
