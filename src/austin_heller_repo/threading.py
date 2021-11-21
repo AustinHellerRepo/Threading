@@ -426,7 +426,9 @@ class ReadOnlyAsyncHandle():
 
 	def add_parent(self, async_handle):
 		# this can be an AsyncHandle or ReadOnlyAsyncHandle
-		self.__is_cancelled.add_nand(async_handle.__is_cancelled)
+		type_name = async_handle.__class__.__name__
+		is_cancelled = getattr(async_handle, "_" + type_name + "__is_cancelled")
+		self.__is_cancelled.add_nand(is_cancelled)
 
 
 class AsyncHandle():
@@ -469,7 +471,9 @@ class AsyncHandle():
 
 	def add_parent(self, async_handle):
 		# this can be an AsyncHandle or ReadOnlyAsyncHandle
-		self.__is_cancelled.add_nand(async_handle.__is_cancelled)
+		type_name = async_handle.__class__.__name__
+		is_cancelled = getattr(async_handle, "_" + type_name + "__is_cancelled")
+		self.__is_cancelled.add_nand(is_cancelled)
 
 	def cancel(self):
 

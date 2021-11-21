@@ -746,3 +746,25 @@ class ThreadingTest(unittest.TestCase):
             async_handle.get_result()
 
         self.assertEqual("test exception", str(ex.exception))
+
+    def test_parent_child_async_handles(self):
+
+        def method_0(read_only_async_handle: ReadOnlyAsyncHandle):
+
+            def inner_method(read_only_async_handle: ReadOnlyAsyncHandle):
+
+                time.sleep(1)
+
+            async_handle = AsyncHandle(
+                get_result_method=inner_method
+            )
+
+            async_handle.add_parent(read_only_async_handle)
+
+            async_handle.get_result()
+
+        async_handle = AsyncHandle(
+            get_result_method=method_0
+        )
+
+        async_handle.get_result()
