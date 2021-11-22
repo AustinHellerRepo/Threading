@@ -503,7 +503,7 @@ class AsyncHandle():
 
 		return is_successful
 
-	def get_result(self) -> object:
+	def get_result(self):
 
 		if self.__is_storing or self.__is_storing is None:
 			if not self.__is_cancelled.get():
