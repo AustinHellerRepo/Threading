@@ -92,7 +92,7 @@ class BooleanReference():
 		for boolean_reference in self.__added_ands:
 			value = value and boolean_reference.get()
 		for boolean_reference in self.__added_nands:
-			value = value != boolean_reference.get()
+			value = value or boolean_reference.get()
 		return self.__value
 
 	def set(self, value: bool):
