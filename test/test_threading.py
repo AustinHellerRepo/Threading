@@ -768,3 +768,78 @@ class ThreadingTest(unittest.TestCase):
         )
 
         async_handle.get_result()
+
+    def test_parent_cancels_child_async_handle(self):
+
+        is_cancellation_detected = False
+
+        def get_result_method(read_only_async_handle: ReadOnlyAsyncHandle):
+            nonlocal is_cancellation_detected
+            for index in range(5):
+                if read_only_async_handle.is_cancelled():
+                    print("Cancellation detect")
+                    is_cancellation_detected = True
+                    break
+                time.sleep(1)
+
+        async_handle = AsyncHandle(
+            get_result_method=get_result_method
+        )
+
+        async_handle.try_wait(
+            timeout_seconds=0
+        )
+
+        time.sleep(2)
+
+        async_handle.cancel()
+
+        time.sleep(2)
+
+        self.assertTrue(is_cancellation_detected)
+
+    def test_parent_of_parent_cancels_child_async_handle(self):
+
+        is_cancellation_detected = False
+
+        def first_get_result_method(read_only_async_handle: ReadOnlyAsyncHandle):
+            nonlocal is_cancellation_detected
+
+            def second_get_result_method(read_only_async_handle: ReadOnlyAsyncHandle):
+                nonlocal is_cancellation_detected
+                for index in range(10):
+                    if read_only_async_handle.is_cancelled():
+                        print("Cancellation detect")
+                        is_cancellation_detected = True
+                        break
+                    else:
+                        time.sleep(0.5)
+                        print(f"loop index: {index}")
+
+            async_handle = AsyncHandle(
+                get_result_method=second_get_result_method
+            )
+            async_handle.add_parent(
+                async_handle=read_only_async_handle
+            )
+            async_handle.try_wait(
+                timeout_seconds=0
+            )
+
+        async_handle = AsyncHandle(
+            get_result_method=first_get_result_method
+        )
+
+        async_handle.try_wait(
+            timeout_seconds=0
+        )
+
+        time.sleep(2)
+
+        async_handle.cancel()
+
+        print(f"Cancel action")
+
+        time.sleep(2)
+
+        self.assertTrue(is_cancellation_detected)

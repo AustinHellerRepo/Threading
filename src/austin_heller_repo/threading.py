@@ -421,14 +421,19 @@ class ReadOnlyAsyncHandle():
 
 		self.__is_cancelled = is_cancelled
 
+		self.__parents = []
+
 	def is_cancelled(self) -> bool:
-		return self.__is_cancelled.get()
+		is_cancelled = self.__is_cancelled.get()
+		if not is_cancelled:
+			for parent_async_handle in self.__parents:
+				if parent_async_handle.is_cancelled():
+					return True
+		return is_cancelled
 
 	def add_parent(self, async_handle):
 		# this can be an AsyncHandle or ReadOnlyAsyncHandle
-		type_name = async_handle.__class__.__name__
-		is_cancelled = getattr(async_handle, "_" + type_name + "__is_cancelled")
-		self.__is_cancelled.add_nand(is_cancelled)
+		self.__parents.append(async_handle)
 
 
 class AsyncHandle():
@@ -443,6 +448,7 @@ class AsyncHandle():
 		self.__wait_for_result_semaphore = Semaphore()
 		self.__store_result_timeout_thread = None  # type: TimeoutThread
 		self.__is_store_result_timeout_thread_joined = True  # type: bool
+		self.__parents = []
 
 	def __store_result(self):
 
@@ -462,18 +468,25 @@ class AsyncHandle():
 		self.__wait_for_result_semaphore.release()
 
 	def get_readonly_async_handle(self) -> ReadOnlyAsyncHandle:
-		return ReadOnlyAsyncHandle(
+		read_only_async_handle = ReadOnlyAsyncHandle(
 			is_cancelled=self.__is_cancelled
 		)
+		read_only_async_handle.add_parent(
+			async_handle=self
+		)
+		return read_only_async_handle
 
 	def is_cancelled(self) -> bool:
-		return self.__is_cancelled.get()
+		is_cancelled = self.__is_cancelled.get()
+		if not is_cancelled:
+			for parent_async_handle in self.__parents:
+				if parent_async_handle.is_cancelled():
+					return True
+		return is_cancelled
 
 	def add_parent(self, async_handle):
 		# this can be an AsyncHandle or ReadOnlyAsyncHandle
-		type_name = async_handle.__class__.__name__
-		is_cancelled = getattr(async_handle, "_" + type_name + "__is_cancelled")
-		self.__is_cancelled.add_nand(is_cancelled)
+		self.__parents.append(async_handle)
 
 	def cancel(self):
 
