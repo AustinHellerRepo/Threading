@@ -1011,3 +1011,12 @@ class SingletonMemorySequentialQueue(SequentialQueue):
 			timeout_seconds=0
 		)
 		return async_handle
+
+
+class SequentialQueueFactory():
+
+	def __init__(self):
+		pass
+
+	def get_sequential_queue(self) -> SequentialQueue:
+		raise NotImplementedError()
