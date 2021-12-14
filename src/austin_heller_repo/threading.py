@@ -768,6 +768,15 @@ class SequentialQueue():
 		raise NotImplementedError()
 
 
+class SequentialQueueFactory():
+
+	def __init__(self):
+		pass
+
+	def get_sequential_queue(self) -> SequentialQueue:
+		raise NotImplementedError()
+
+
 class MemorySequentialQueueWriter(SequentialQueueWriter):
 
 	def __init__(self, queue: list, semaphore: Semaphore):
@@ -884,6 +893,19 @@ class MemorySequentialQueue(SequentialQueue):
 			timeout_seconds=0
 		)
 		return async_handle
+
+
+class MemorySequentialQueueFactory(SequentialQueueFactory):
+
+	def __init__(self, *, reader_failed_read_delay_seconds: float):
+		super().__init__()
+
+		self.__reader_failed_read_delay_seconds = reader_failed_read_delay_seconds
+
+	def get_sequential_queue(self) -> MemorySequentialQueue:
+		return MemorySequentialQueue(
+			reader_failed_read_delay_seconds=self.__reader_failed_read_delay_seconds
+		)
 
 
 class SingletonMemorySequentialQueueWriter(SequentialQueueWriter):
@@ -1013,10 +1035,14 @@ class SingletonMemorySequentialQueue(SequentialQueue):
 		return async_handle
 
 
-class SequentialQueueFactory():
+class SingletonMemorySequentialQueueFactory(SequentialQueueFactory):
 
-	def __init__(self):
-		pass
+	def __init__(self, *, reader_failed_read_delay_seconds: float):
+		super().__init__()
 
-	def get_sequential_queue(self) -> SequentialQueue:
-		raise NotImplementedError()
+		self.__reader_failed_read_delay_seconds = reader_failed_read_delay_seconds
+
+	def get_sequential_queue(self) -> SingletonMemorySequentialQueue:
+		return SingletonMemorySequentialQueue(
+			reader_failed_read_delay_seconds=self.__reader_failed_read_delay_seconds
+		)
