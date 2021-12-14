@@ -439,9 +439,11 @@ class ReadOnlyAsyncHandle():
 
 class AsyncHandle():
 
-	def __init__(self, *, get_result_method):
+	def __init__(self, get_result_method, *args, **kwargs):
 
 		self.__get_result_method = get_result_method
+		self.__args = args
+		self.__kwargs = kwargs
 
 		self.__is_cancelled = BooleanReference(False)
 		self.__is_storing = None
@@ -456,7 +458,7 @@ class AsyncHandle():
 		self.__wait_for_result_semaphore.acquire()
 		self.__is_storing = True
 		try:
-			self.__result = self.__get_result_method(self.get_readonly_async_handle())
+			self.__result = self.__get_result_method(self.get_readonly_async_handle(), *self.__args, **self.__kwargs)
 		except Exception as ex:
 			raise ex
 		finally:
@@ -761,3 +763,251 @@ class SequentialQueue():
 
 	def get_reader(self) -> AsyncHandle:
 		raise NotImplementedError()
+
+	def dispose(self) -> AsyncHandle:
+		raise NotImplementedError()
+
+
+class MemorySequentialQueueWriter(SequentialQueueWriter):
+
+	def __init__(self, queue: list, semaphore: Semaphore):
+		super().__init__()
+
+		self.__queue = queue
+		self.__semaphore = semaphore
+
+	def __write_bytes(self, read_only_async_handle: ReadOnlyAsyncHandle, message_bytes: bytes):
+
+		self.__semaphore.acquire()
+		if not read_only_async_handle.is_cancelled():
+			self.__queue.append(message_bytes)
+		self.__semaphore.release()
+
+	def write_bytes(self, *, message_bytes) -> AsyncHandle:
+
+		async_handle = AsyncHandle(
+			get_result_method=self.__write_bytes,
+			message_bytes=message_bytes
+		)
+		async_handle.try_wait(
+			timeout_seconds=0
+		)
+		return async_handle
+
+
+class MemorySequentialQueueReader(SequentialQueueReader):
+
+	def __init__(self, queue: list, failed_read_delay_seconds: float):
+		super().__init__()
+
+		self.__queue = queue
+		self.__failed_read_delay_seconds = failed_read_delay_seconds
+
+		self.__next_read_index = 0
+
+	def __read_bytes(self, read_only_async_handle: ReadOnlyAsyncHandle) -> bytes:
+
+		while not read_only_async_handle.is_cancelled() and len(self.__queue) <= self.__next_read_index:
+			time.sleep(self.__failed_read_delay_seconds)
+		if not read_only_async_handle.is_cancelled():
+			message_bytes = self.__queue[self.__next_read_index]
+			self.__next_read_index += 1
+		else:
+			message_bytes = None
+		return message_bytes
+
+	def read_bytes(self) -> AsyncHandle:
+
+		async_handle = AsyncHandle(
+			get_result_method=self.__read_bytes
+		)
+		async_handle.try_wait(
+			timeout_seconds=0
+		)
+		return async_handle
+
+
+class MemorySequentialQueue(SequentialQueue):
+
+	def __init__(self, *, reader_failed_read_delay_seconds: float):
+		super().__init__()
+
+		self.__reader_failed_read_delay_seconds = reader_failed_read_delay_seconds
+
+		self.__queue = []
+		self.__writer_semaphore = Semaphore()
+
+	def __get_writer(self) -> MemorySequentialQueueWriter:
+
+		return MemorySequentialQueueWriter(
+			queue=self.__queue,
+			semaphore=self.__writer_semaphore
+		)
+
+	def __get_reader(self) -> MemorySequentialQueueReader:
+
+		return MemorySequentialQueueReader(
+			queue=self.__queue,
+			failed_read_delay_seconds=self.__reader_failed_read_delay_seconds
+		)
+
+	def __dispose(self):
+		self.__queue.clear()
+		del self.__queue
+
+	def get_writer(self) -> AsyncHandle:
+
+		async_handle = AsyncHandle(
+			get_result_method=self.__get_writer
+		)
+		async_handle.try_wait(
+			timeout_seconds=0
+		)
+		return async_handle
+
+	def get_reader(self) -> AsyncHandle:
+
+		async_handle = AsyncHandle(
+			get_result_method=self.__get_reader
+		)
+		async_handle.try_wait(
+			timeout_seconds=0
+		)
+		return async_handle
+
+	def dispose(self) -> AsyncHandle:
+
+		async_handle = AsyncHandle(
+			get_result_method=self.__dispose
+		)
+		async_handle.try_wait(
+			timeout_seconds=0
+		)
+		return async_handle
+
+
+class SingletonMemorySequentialQueueWriter(SequentialQueueWriter):
+
+	def __init__(self, queue: list, semaphore: Semaphore):
+		super().__init__()
+
+		self.__queue = queue
+		self.__semaphore = semaphore
+
+	def __write_bytes(self, read_only_async_handle: ReadOnlyAsyncHandle, message_bytes: bytes):
+
+		self.__semaphore.acquire()
+		try:
+			if not read_only_async_handle.is_cancelled():
+				self.__queue.append(message_bytes)
+		finally:
+			self.__semaphore.release()
+
+	def write_bytes(self, *, message_bytes) -> AsyncHandle:
+
+		async_handle = AsyncHandle(
+			get_result_method=self.__write_bytes,
+			message_bytes=message_bytes
+		)
+		async_handle.try_wait(
+			timeout_seconds=0
+		)
+		return async_handle
+
+
+class SingletonMemorySequentialQueueReader(SequentialQueueReader):
+
+	def __init__(self, queue: list, failed_read_delay_seconds: float, semaphore: Semaphore):
+		super().__init__()
+
+		self.__queue = queue
+		self.__failed_read_delay_seconds = failed_read_delay_seconds
+		self.__semaphore = semaphore
+
+	def __read_bytes(self, read_only_async_handle: ReadOnlyAsyncHandle) -> bytes:
+
+		self.__semaphore.acquire()
+		try:
+			if not read_only_async_handle.is_cancelled():
+				while not read_only_async_handle.is_cancelled() and len(self.__queue) == 0:
+					time.sleep(self.__failed_read_delay_seconds)
+				if not read_only_async_handle.is_cancelled():
+					message_bytes = self.__queue.pop(0)
+				else:
+					message_bytes = None
+			else:
+				message_bytes = None
+			return message_bytes
+		finally:
+			self.__semaphore.release()
+
+	def read_bytes(self) -> AsyncHandle:
+
+		async_handle = AsyncHandle(
+			get_result_method=self.__read_bytes
+		)
+		async_handle.try_wait(
+			timeout_seconds=0
+		)
+		return async_handle
+
+
+class SingletonMemorySequentialQueue(SequentialQueue):
+
+	def __init__(self, *, reader_failed_read_delay_seconds: float):
+		super().__init__()
+
+		self.__reader_failed_read_delay_seconds = reader_failed_read_delay_seconds
+
+		self.__queue = []
+		self.__writer_semaphore = Semaphore()
+		self.__reader_semaphore = Semaphore()
+
+	def __get_writer(self) -> SingletonMemorySequentialQueueWriter:
+
+		return SingletonMemorySequentialQueueWriter(
+			queue=self.__queue,
+			semaphore=self.__writer_semaphore
+		)
+
+	def __get_reader(self) -> SingletonMemorySequentialQueueReader:
+
+		return SingletonMemorySequentialQueueReader(
+			queue=self.__queue,
+			failed_read_delay_seconds=self.__reader_failed_read_delay_seconds,
+			semaphore=self.__reader_semaphore
+		)
+
+	def __dispose(self):
+		self.__queue.clear()
+		del self.__queue
+
+	def get_writer(self) -> AsyncHandle:
+
+		async_handle = AsyncHandle(
+			get_result_method=self.__get_writer
+		)
+		async_handle.try_wait(
+			timeout_seconds=0
+		)
+		return async_handle
+
+	def get_reader(self) -> AsyncHandle:
+
+		async_handle = AsyncHandle(
+			get_result_method=self.__get_reader
+		)
+		async_handle.try_wait(
+			timeout_seconds=0
+		)
+		return async_handle
+
+	def dispose(self) -> AsyncHandle:
+
+		async_handle = AsyncHandle(
+			get_result_method=self.__dispose
+		)
+		async_handle.try_wait(
+			timeout_seconds=0
+		)
+		return async_handle
