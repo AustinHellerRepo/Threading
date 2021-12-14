@@ -39,3 +39,5 @@ class SingletonMemorySequentialQueueTest(unittest.TestCase):
 		actual_message_bytes = sequential_queue_reader.read_bytes().get_result()  # type: bytes
 
 		self.assertEqual(expected_message_bytes, actual_message_bytes)
+
+		sequential_queue.dispose()

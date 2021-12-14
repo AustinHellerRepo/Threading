@@ -1017,9 +1017,10 @@ class SingletonMemorySequentialQueue(SequentialQueue):
 			sequential_queue_reader = None
 		return sequential_queue_reader
 
-	def __dispose(self):
-		self.__queue.clear()
-		del self.__queue
+	def __dispose(self, read_only_async_handle: ReadOnlyAsyncHandle):
+		if not read_only_async_handle.is_cancelled():
+			self.__queue.clear()
+			del self.__queue
 
 	def get_writer(self) -> AsyncHandle:
 
