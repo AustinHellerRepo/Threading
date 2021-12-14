@@ -110,6 +110,7 @@ class BooleanReference():
 		if len(self.__added_ands) != 0:
 			raise Exception("Cannot add both ands and nands.")
 
+
 class StringReference():
 
 	def __init__(self, value: str):
@@ -730,3 +731,33 @@ class ThreadCycleCache():
 			_thread_cycle.stop()
 		self.__thread_cycles.clear()
 		self.__thread_cycles_semaphore.release()
+
+
+class SequentialQueueWriter():
+
+	def __init__(self):
+		pass
+
+	def write_bytes(self, *, message_bytes) -> AsyncHandle:
+		raise NotImplementedError()
+
+
+class SequentialQueueReader():
+
+	def __init__(self):
+		pass
+
+	def read_bytes(self) -> AsyncHandle:
+		raise NotImplementedError()
+
+
+class SequentialQueue():
+
+	def __init__(self):
+		pass
+
+	def get_writer(self) -> AsyncHandle:
+		raise NotImplementedError()
+
+	def get_reader(self) -> AsyncHandle:
+		raise NotImplementedError()
