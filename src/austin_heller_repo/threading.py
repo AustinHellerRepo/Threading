@@ -1018,14 +1018,13 @@ class SingletonMemorySequentialQueueReader(SequentialQueueReader):
 			if not read_only_async_handle.is_cancelled():
 				self.__is_read_blocking = True
 				self.__queue_waiting_semaphore.acquire()
-				self.__queue_waiting_semaphore.release()
 				self.__is_read_blocking = False
 				if not read_only_async_handle.is_cancelled():
 					self.__queue_semaphore.acquire()
 					try:
 						message_bytes = self.__queue.pop(0)
-						if len(self.__queue) == 0:
-							self.__queue_waiting_semaphore.acquire()
+						if len(self.__queue) != 0:
+							self.__queue_waiting_semaphore.release()
 					finally:
 						self.__queue_semaphore.release()
 				else:
