@@ -3,9 +3,7 @@ from src.austin_heller_repo.threading import MemorySequentialQueue, MemorySequen
 
 
 def get_default_singleton_memory_sequential_queue_factory() -> SingletonMemorySequentialQueueFactory:
-	return SingletonMemorySequentialQueueFactory(
-		reader_failed_read_delay_seconds=0
-	)
+	return SingletonMemorySequentialQueueFactory()
 
 
 class SingletonMemorySequentialQueueTest(unittest.TestCase):
