@@ -1076,6 +1076,8 @@ class SingletonMemorySequentialQueue(SequentialQueue):
 		self.__writer_semaphore = Semaphore()
 		self.__reader_semaphore = Semaphore()
 
+		self.__initialize()
+
 	def __initialize(self):
 
 		self.__queue_waiting_semaphore.acquire()
