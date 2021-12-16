@@ -1010,6 +1010,7 @@ class SingletonMemorySequentialQueueReader(SequentialQueueReader):
 		self.__semaphore = semaphore
 
 		self.__is_read_blocking = False
+		self.__is_disposing = False
 
 	def __read_bytes(self, read_only_async_handle: ReadOnlyAsyncHandle) -> bytes:
 
@@ -1019,15 +1020,19 @@ class SingletonMemorySequentialQueueReader(SequentialQueueReader):
 				self.__is_read_blocking = True
 				self.__queue_waiting_semaphore.acquire()
 				self.__is_read_blocking = False
-				if not read_only_async_handle.is_cancelled():
-					self.__queue_semaphore.acquire()
-					try:
-						message_bytes = self.__queue.pop(0)
-						if len(self.__queue) != 0:
-							self.__queue_waiting_semaphore.release()
-					finally:
-						self.__queue_semaphore.release()
+				if not self.__is_disposing:
+					if not read_only_async_handle.is_cancelled():
+						self.__queue_semaphore.acquire()
+						try:
+							message_bytes = self.__queue.pop(0)
+							if len(self.__queue) != 0:
+								self.__queue_waiting_semaphore.release()
+						finally:
+							self.__queue_semaphore.release()
+					else:
+						message_bytes = None
 				else:
+					self.__queue_waiting_semaphore.release()
 					message_bytes = None
 			else:
 				message_bytes = None
@@ -1048,6 +1053,7 @@ class SingletonMemorySequentialQueueReader(SequentialQueueReader):
 	def __dispose(self, read_only_async_handle: ReadOnlyAsyncHandle):
 
 		if not read_only_async_handle.is_cancelled():
+			self.__is_disposing = True
 			if self.__is_read_blocking:
 				try:
 					self.__queue_waiting_semaphore.release()
