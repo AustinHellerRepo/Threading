@@ -999,7 +999,7 @@ class SingletonMemorySequentialQueueWriter(SequentialQueueWriter):
 		self.__queue_semaphore = queue_semaphore
 		self.__queue_waiting_semaphore = queue_waiting_semaphore
 
-	def write_bytes(self, *, message_bytes) -> ConstantAsyncHandle:
+	def __write_bytes(self, read_only_async_handle: ReadOnlyAsyncHandle, message_bytes: bytes):
 
 		self.__queue_semaphore.acquire()
 		try:
@@ -1009,18 +1009,33 @@ class SingletonMemorySequentialQueueWriter(SequentialQueueWriter):
 				self.__queue_waiting_semaphore.release()
 		finally:
 			self.__queue_semaphore.release()
-		return ConstantAsyncHandle(
-			result=None
-		)
 
-	def dispose(self) -> ConstantAsyncHandle:
+	def write_bytes(self, *, message_bytes) -> AsyncHandle:
+
+		async_handle = AsyncHandle(
+			get_result_method=self.__write_bytes,
+			message_bytes=message_bytes
+		)
+		async_handle.try_wait(
+			timeout_seconds=0
+		)
+		return async_handle
+
+	def __dispose(self, read_only_async_handle: ReadOnlyAsyncHandle):
 
 		del self.__queue
 		del self.__queue_semaphore
 		del self.__queue_waiting_semaphore
-		return ConstantAsyncHandle(
-			result=None
+
+	def dispose(self) -> AsyncHandle:
+
+		async_handle = AsyncHandle(
+			get_result_method=self.__dispose
 		)
+		async_handle.try_wait(
+			timeout_seconds=0
+		)
+		return async_handle
 
 
 class SingletonMemorySequentialQueueReader(SequentialQueueReader):
@@ -1032,7 +1047,7 @@ class SingletonMemorySequentialQueueReader(SequentialQueueReader):
 		self.__queue_semaphore = queue_semaphore
 		self.__queue_waiting_semaphore = queue_waiting_semaphore
 
-	def read_bytes(self) -> ConstantAsyncHandle:
+	def __read_bytes(self, read_only_async_handle: ReadOnlyAsyncHandle) -> bytes:
 
 		self.__queue_waiting_semaphore.acquire()
 		self.__queue_semaphore.acquire()
@@ -1042,18 +1057,33 @@ class SingletonMemorySequentialQueueReader(SequentialQueueReader):
 				self.__queue_waiting_semaphore.release()
 		finally:
 			self.__queue_semaphore.release()
-		return ConstantAsyncHandle(
-			result=message_bytes
-		)
+		return message_bytes
 
-	def dispose(self) -> ConstantAsyncHandle:
+	def read_bytes(self) -> AsyncHandle:
+
+		async_handle = AsyncHandle(
+			get_result_method=self.__read_bytes
+		)
+		async_handle.try_wait(
+			timeout_seconds=0
+		)
+		return async_handle
+
+	def __dispose(self, read_only_async_handle: ReadOnlyAsyncHandle):
 
 		del self.__queue
 		del self.__queue_semaphore
 		del self.__queue_waiting_semaphore
-		return ConstantAsyncHandle(
-			result=None
+
+	def dispose(self) -> AsyncHandle:
+
+		async_handle = AsyncHandle(
+			get_result_method=self.__dispose
 		)
+		async_handle.try_wait(
+			timeout_seconds=0
+		)
+		return async_handle
 
 
 class SingletonMemorySequentialQueue(SequentialQueue):
