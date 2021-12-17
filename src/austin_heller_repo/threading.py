@@ -1079,6 +1079,7 @@ class SingletonMemorySequentialQueue(SequentialQueue):
 		self.__queue_semaphore = Semaphore()
 		self.__queue_waiting_semaphore = Semaphore()
 
+		self.__readers_total = 0
 		self.__initialize()
 
 	def __initialize(self):
@@ -1105,6 +1106,7 @@ class SingletonMemorySequentialQueue(SequentialQueue):
 				queue_semaphore=self.__queue_semaphore,
 				queue_waiting_semaphore=self.__queue_waiting_semaphore
 			)
+			self.__readers_total += 1
 		else:
 			sequential_queue_reader = None
 		return sequential_queue_reader
@@ -1114,7 +1116,8 @@ class SingletonMemorySequentialQueue(SequentialQueue):
 		self.__queue.clear()
 		del self.__queue
 		del self.__queue_semaphore
-		del self.__queue_waiting_semaphore
+		for index in range(self.__readers_total):
+			self.__queue_waiting_semaphore.release()
 
 	def get_writer(self) -> AsyncHandle:
 
