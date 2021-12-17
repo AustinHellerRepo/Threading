@@ -953,26 +953,23 @@ class MemorySequentialQueueFactory(SequentialQueueFactory):
 
 class SingletonMemorySequentialQueueWriter(SequentialQueueWriter):
 
-	def __init__(self, queue: collections.deque, queue_semaphore: Semaphore, queue_waiting_semaphore: Semaphore, is_queue_disposing_boolean_reference: BooleanReference):
+	def __init__(self, queue: collections.deque, queue_semaphore: Semaphore, queue_waiting_semaphore: Semaphore):
 		super().__init__()
 
 		self.__queue = queue
 		self.__queue_semaphore = queue_semaphore
 		self.__queue_waiting_semaphore = queue_waiting_semaphore
-		self.__is_queue_disposing_boolean_reference = is_queue_disposing_boolean_reference
 
 	def __write_bytes(self, read_only_async_handle: ReadOnlyAsyncHandle, message_bytes: bytes):
 
-		if not read_only_async_handle.is_cancelled():
-			if not self.__is_queue_disposing_boolean_reference.get():
-				self.__queue_semaphore.acquire()
-				try:
-					is_queue_empty = not bool(self.__queue)
-					self.__queue.append(message_bytes)
-					if is_queue_empty:  # if the queue used to be empty
-						self.__queue_waiting_semaphore.release()
-				finally:
-					self.__queue_semaphore.release()
+		self.__queue_semaphore.acquire()
+		try:
+			is_queue_empty = not bool(self.__queue)
+			self.__queue.append(message_bytes)
+			if is_queue_empty:  # if the queue used to be empty
+				self.__queue_waiting_semaphore.release()
+		finally:
+			self.__queue_semaphore.release()
 
 	def write_bytes(self, *, message_bytes) -> AsyncHandle:
 
@@ -987,8 +984,9 @@ class SingletonMemorySequentialQueueWriter(SequentialQueueWriter):
 
 	def __dispose(self, read_only_async_handle: ReadOnlyAsyncHandle):
 
-		if not read_only_async_handle.is_cancelled():
-			del self.__queue
+		del self.__queue
+		del self.__queue_semaphore
+		del self.__queue_waiting_semaphore
 
 	def dispose(self) -> AsyncHandle:
 
@@ -1003,34 +1001,23 @@ class SingletonMemorySequentialQueueWriter(SequentialQueueWriter):
 
 class SingletonMemorySequentialQueueReader(SequentialQueueReader):
 
-	def __init__(self, queue: collections.deque, queue_semaphore: Semaphore, queue_waiting_semaphore: Semaphore, is_queue_disposing_boolean_reference: BooleanReference):
+	def __init__(self, queue: collections.deque, queue_semaphore: Semaphore, queue_waiting_semaphore: Semaphore):
 		super().__init__()
 
 		self.__queue = queue
 		self.__queue_semaphore = queue_semaphore
 		self.__queue_waiting_semaphore = queue_waiting_semaphore
-		self.__is_queue_disposing_boolean_reference = is_queue_disposing_boolean_reference
 
 	def __read_bytes(self, read_only_async_handle: ReadOnlyAsyncHandle) -> bytes:
 
-		if not read_only_async_handle.is_cancelled():
-			self.__queue_waiting_semaphore.acquire()
-			if not self.__is_queue_disposing_boolean_reference.get():
-				if not read_only_async_handle.is_cancelled():
-					self.__queue_semaphore.acquire()
-					try:
-						message_bytes = self.__queue.popleft()
-						if self.__queue:
-							self.__queue_waiting_semaphore.release()
-					finally:
-						self.__queue_semaphore.release()
-				else:
-					message_bytes = None
-			else:
+		self.__queue_waiting_semaphore.acquire()
+		self.__queue_semaphore.acquire()
+		try:
+			message_bytes = self.__queue.popleft()
+			if self.__queue:
 				self.__queue_waiting_semaphore.release()
-				message_bytes = None
-		else:
-			message_bytes = None
+		finally:
+			self.__queue_semaphore.release()
 		return message_bytes
 
 	def read_bytes(self) -> AsyncHandle:
@@ -1045,8 +1032,9 @@ class SingletonMemorySequentialQueueReader(SequentialQueueReader):
 
 	def __dispose(self, read_only_async_handle: ReadOnlyAsyncHandle):
 
-		if not read_only_async_handle.is_cancelled():
-			del self.__queue
+		del self.__queue
+		del self.__queue_semaphore
+		del self.__queue_waiting_semaphore
 
 	def dispose(self) -> AsyncHandle:
 
@@ -1067,7 +1055,6 @@ class SingletonMemorySequentialQueue(SequentialQueue):
 		self.__queue = collections.deque()
 		self.__queue_semaphore = Semaphore()
 		self.__queue_waiting_semaphore = Semaphore()
-		self.__is_disposing_boolean_reference = BooleanReference(False)
 
 		self.__initialize()
 
@@ -1081,8 +1068,7 @@ class SingletonMemorySequentialQueue(SequentialQueue):
 			sequential_queue_writer = SingletonMemorySequentialQueueWriter(
 				queue=self.__queue,
 				queue_semaphore=self.__queue_semaphore,
-				queue_waiting_semaphore=self.__queue_waiting_semaphore,
-				is_queue_disposing_boolean_reference=self.__is_disposing_boolean_reference
+				queue_waiting_semaphore=self.__queue_waiting_semaphore
 			)
 		else:
 			sequential_queue_writer = None
@@ -1094,22 +1080,18 @@ class SingletonMemorySequentialQueue(SequentialQueue):
 			sequential_queue_reader = SingletonMemorySequentialQueueReader(
 				queue=self.__queue,
 				queue_semaphore=self.__queue_semaphore,
-				queue_waiting_semaphore=self.__queue_waiting_semaphore,
-				is_queue_disposing_boolean_reference=self.__is_disposing_boolean_reference
+				queue_waiting_semaphore=self.__queue_waiting_semaphore
 			)
 		else:
 			sequential_queue_reader = None
 		return sequential_queue_reader
 
 	def __dispose(self, read_only_async_handle: ReadOnlyAsyncHandle):
-		if not read_only_async_handle.is_cancelled():
-			self.__is_disposing_boolean_reference.set(True)
-			try:
-				self.__queue_waiting_semaphore.release()
-			except Exception as ex:
-				pass
-			self.__queue.clear()
-			del self.__queue
+
+		self.__queue.clear()
+		del self.__queue
+		del self.__queue_semaphore
+		del self.__queue_waiting_semaphore
 
 	def get_writer(self) -> AsyncHandle:
 
