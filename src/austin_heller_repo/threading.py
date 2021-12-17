@@ -1015,9 +1015,7 @@ class SingletonMemorySequentialQueueWriter(SequentialQueueWriter):
 
 	def __dispose(self, read_only_async_handle: ReadOnlyAsyncHandle):
 
-		del self.__queue
-		del self.__queue_semaphore
-		del self.__queue_waiting_semaphore
+		pass
 
 	def dispose(self) -> AsyncHandle:
 
@@ -1055,9 +1053,7 @@ class SingletonMemorySequentialQueueReader(SequentialQueueReader):
 
 	def __dispose(self, read_only_async_handle: ReadOnlyAsyncHandle):
 
-		del self.__queue
-		del self.__queue_semaphore
-		del self.__queue_waiting_semaphore
+		pass
 
 	def dispose(self) -> AsyncHandle:
 
