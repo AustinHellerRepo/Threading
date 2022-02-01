@@ -12,7 +12,7 @@ try:
 	class Semaphore():
 
 		def __init__(self):
-			self.__lock = threading.Semaphore()
+			self.__lock = threading.Lock()
 
 		def acquire(self):
 			self.__lock.acquire()
